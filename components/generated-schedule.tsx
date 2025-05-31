@@ -52,6 +52,15 @@ export default function GeneratedSchedule({
     day: 0,
     shiftType: "C",
   })
+  const [draggedItem, setDraggedItem] = useState<{
+    staffId: string
+    day: number
+    shiftType: "C" | "ICU" | "日勤"
+  } | null>(null)
+  const [dragOverCell, setDragOverCell] = useState<{
+    day: number
+    shiftType: "C" | "ICU" | "日勤"
+  } | null>(null)
 
   if (!schedule) {
     return (
@@ -150,6 +159,61 @@ export default function GeneratedSchedule({
 
     onScheduleUpdate(updatedSchedule)
     setIsManualAssignDialogOpen(false)
+  }
+
+  // ドラッグ&ドロップのハンドラー
+  const handleDragStart = (e: React.DragEvent, staffId: string, day: number, shiftType: "C" | "ICU" | "日勤") => {
+    setDraggedItem({ staffId, day, shiftType })
+    e.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleDragOver = (e: React.DragEvent, day: number, shiftType: "C" | "ICU" | "日勤") => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    setDragOverCell({ day, shiftType })
+  }
+
+  const handleDragLeave = () => {
+    setDragOverCell(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, targetDay: number, targetShiftType: "C" | "ICU" | "日勤") => {
+    e.preventDefault()
+    
+    if (!draggedItem) return
+
+    // 同じ場所にドロップした場合は何もしない
+    if (draggedItem.day === targetDay && draggedItem.shiftType === targetShiftType) {
+      setDraggedItem(null)
+      setDragOverCell(null)
+      return
+    }
+
+    // 既存の割り当てを削除（ドラッグ元とドロップ先）
+    let updatedAssignments = schedule.assignments.filter(
+      (a) => !(
+        (a.day === draggedItem.day && a.shiftType === draggedItem.shiftType && a.staffId === draggedItem.staffId) ||
+        (a.day === targetDay && a.shiftType === targetShiftType)
+      )
+    )
+
+    // 新しい割り当てを追加
+    updatedAssignments.push({
+      day: targetDay,
+      staffId: draggedItem.staffId,
+      shiftType: targetShiftType,
+      isManuallyAssigned: true,
+    })
+
+    // スケジュールを更新
+    const updatedSchedule = {
+      ...schedule,
+      assignments: updatedAssignments,
+    }
+
+    onScheduleUpdate(updatedSchedule)
+    setDraggedItem(null)
+    setDragOverCell(null)
   }
 
   // 日付ヘッダーを生成（コンパクトに）
@@ -361,6 +425,153 @@ export default function GeneratedSchedule({
                 <li>• <strong>右クリック</strong>：コンテキストメニューで素早く変更・削除</li>
                 <li>• ダイアログで「割り当てを削除」を選択すると、そのシフトから割り当てを削除できます</li>
               </ul>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="drag-drop">
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-3 rounded border border-blue-200">
+              <p className="font-semibold text-blue-800 mb-1">ドラッグ&ドロップでのスケジュール変更方法：</p>
+              <ul className="space-y-1 text-blue-700 text-sm">
+                <li>• スタッフ名をドラッグして、別の日または別のシフトタイプにドロップします</li>
+                <li>• 既存の割り当てがある場所にドロップすると、自動的に入れ替わります</li>
+                <li>• 空いている枠にもドロップできます</li>
+              </ul>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <Table className="w-auto">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 bg-white z-10 w-16">日付</TableHead>
+                    {dayHeaders}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="sticky left-0 bg-white z-10 font-medium">日勤</TableCell>
+                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                      const date = new Date(schedule.year, schedule.month, day)
+                      const isSunday = date.getDay() === 0
+                      const isHoliday = holidays.includes(day)
+
+                      if (isSunday || isHoliday) {
+                        const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "日勤")
+
+                        return (
+                          <TableCell 
+                            key={day} 
+                            className={`p-1 text-center relative ${
+                              dragOverCell?.day === day && dragOverCell?.shiftType === "日勤" 
+                                ? "bg-yellow-50 border-2 border-yellow-300" 
+                                : ""
+                            }`}
+                            onDragOver={(e) => handleDragOver(e, day, "日勤")}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => handleDrop(e, day, "日勤")}
+                          >
+                            {assignment ? (
+                              <div 
+                                className={`text-[0.65rem] p-1 rounded cursor-move bg-yellow-100 hover:bg-yellow-200 ${assignment.isSubstitute ? "text-red-500" : ""}`}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, assignment.staffId, day, "日勤")}
+                              >
+                                {getStaffName(assignment.staffId)}
+                                {assignment.isManuallyAssigned && <span className="text-purple-500">*</span>}
+                              </div>
+                            ) : (
+                              <div className="text-[0.6rem] text-gray-300 p-1">-</div>
+                            )}
+                          </TableCell>
+                        )
+                      }
+                      return (
+                        <TableCell key={day} className="p-1 text-center">
+                          <span className="text-[0.6rem] text-gray-300">-</span>
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="sticky left-0 bg-white z-10 font-medium">C当直</TableCell>
+                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                      const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "C")
+
+                      return (
+                        <TableCell 
+                          key={day} 
+                          className={`p-1 text-center relative ${
+                            dragOverCell?.day === day && dragOverCell?.shiftType === "C" 
+                              ? "bg-blue-50 border-2 border-blue-300" 
+                              : ""
+                          }`}
+                          onDragOver={(e) => handleDragOver(e, day, "C")}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, day, "C")}
+                        >
+                          {assignment ? (
+                            <div
+                              className={`text-[0.65rem] p-1 rounded cursor-move bg-blue-100 hover:bg-blue-200 ${assignment.isSubstitute ? "text-red-500" : ""}`}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, assignment.staffId, day, "C")}
+                            >
+                              <div>{getStaffName(assignment.staffId)}</div>
+                              <div className="text-[0.5rem] text-gray-500">{getStaffExperience(assignment.staffId)}年</div>
+                              {assignment.isManuallyAssigned && <span className="text-purple-500">*</span>}
+                            </div>
+                          ) : (
+                            <div className="text-[0.6rem] text-gray-300 p-1">-</div>
+                          )}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="sticky left-0 bg-white z-10 font-medium">ICU当直</TableCell>
+                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                      const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "ICU")
+
+                      return (
+                        <TableCell 
+                          key={day} 
+                          className={`p-1 text-center relative ${
+                            dragOverCell?.day === day && dragOverCell?.shiftType === "ICU" 
+                              ? "bg-green-50 border-2 border-green-300" 
+                              : ""
+                          }`}
+                          onDragOver={(e) => handleDragOver(e, day, "ICU")}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, day, "ICU")}
+                        >
+                          {assignment ? (
+                            <div
+                              className={`text-[0.65rem] p-1 rounded cursor-move bg-green-100 hover:bg-green-200 ${assignment.isSubstitute ? "text-red-500" : ""}`}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, assignment.staffId, day, "ICU")}
+                            >
+                              <div>{getStaffName(assignment.staffId)}</div>
+                              <div className="text-[0.5rem] text-gray-500">{getStaffExperience(assignment.staffId)}年</div>
+                              {assignment.isManuallyAssigned && <span className="text-purple-500">*</span>}
+                            </div>
+                          ) : (
+                            <div className="text-[0.6rem] text-gray-300 p-1">-</div>
+                          )}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+            
+            <div className="mt-2 text-xs space-y-1">
+              <p>
+                <span className="text-purple-500">*</span> は手動で割り当てられたシフトを示します
+              </p>
+              <p>
+                <span className="text-red-500">赤字</span> は上限を超えて割り当てられたシフトを示します
+              </p>
             </div>
           </div>
         </TabsContent>
