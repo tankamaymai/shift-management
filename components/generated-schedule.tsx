@@ -36,14 +36,14 @@ export default function GeneratedSchedule({
 }: GeneratedScheduleProps) {
   const [isManualAssignDialogOpen, setIsManualAssignDialogOpen] = useState(false)
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
-  const [selectedShiftType, setSelectedShiftType] = useState<"C" | "ICU" | "日勤" | null>(null)
+  const [selectedShiftType, setSelectedShiftType] = useState<"C" | "ICU" | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean
     x: number
     y: number
     day: number
-    shiftType: "C" | "ICU" | "日勤"
+    shiftType: "C" | "ICU"
     staffId?: string
   }>({
     visible: false,
@@ -52,20 +52,11 @@ export default function GeneratedSchedule({
     day: 0,
     shiftType: "C",
   })
-  const [draggedItem, setDraggedItem] = useState<{
-    staffId: string
-    day: number
-    shiftType: "C" | "ICU" | "日勤"
-  } | null>(null)
-  const [dragOverCell, setDragOverCell] = useState<{
-    day: number
-    shiftType: "C" | "ICU" | "日勤"
-  } | null>(null)
 
   if (!schedule) {
     return (
-      <div className="text-center py-10">
-        <p className="text-muted-foreground">
+      <div className="text-center py-12">
+        <p className="text-xl text-muted-foreground">
           スケジュールがまだ生成されていません。「スケジュール自動生成」ボタンをクリックしてください。
         </p>
       </div>
@@ -93,7 +84,165 @@ export default function GeneratedSchedule({
     return pref ? pref.preference : "neutral"
   }
 
-  const handleManualAssign = (day: number, shiftType: "C" | "ICU" | "日勤") => {
+  // カレンダービューのコンポーネント
+  const CalendarView = () => {
+    const firstDay = new Date(schedule.year, schedule.month, 1).getDay()
+    const weeks = Math.ceil((daysInMonth + firstDay) / 7)
+    
+    const dayOfWeekHeaders = ["日", "月", "火", "水", "木", "金", "土"]
+    
+    return (
+      <div className="w-full max-w-7xl mx-auto">
+        <div className="space-y-2">
+          {/* 曜日ヘッダー */}
+          <div className="grid grid-cols-7 bg-gray-100 border rounded-t-lg">
+            {dayOfWeekHeaders.map((day, index) => (
+              <div
+                key={day}
+                className={`p-2 text-center font-semibold text-base ${
+                  index === 0 ? "text-red-500" : index === 6 ? "text-blue-500" : ""
+                }`}
+              >
+                {day}
+              </div>
+            ))}
+          </div>
+          
+          {/* カレンダー本体 */}
+          {Array.from({ length: weeks }, (_, weekIndex) => {
+            const startDay = weekIndex * 7 - firstDay + 1
+            const endDay = Math.min(startDay + 6, daysInMonth)
+            
+            return (
+              <div key={weekIndex} className="border-l border-r border-b last:rounded-b-lg overflow-hidden">
+              
+              {/* 日付行 */}
+              <div className="grid grid-cols-7">
+                {Array.from({ length: 7 }, (_, dayIndex) => {
+                  const day = startDay + dayIndex
+                  const dayOfWeek = (weekIndex * 7 + dayIndex) % 7
+                  
+                  if (weekIndex === 0 && dayIndex < firstDay) {
+                    return <div key={dayIndex} className="p-4 bg-gray-50"></div>
+                  }
+                  
+                  if (day > daysInMonth) {
+                    return <div key={dayIndex} className="p-4 bg-gray-50"></div>
+                  }
+                  
+                  const isHoliday = holidays.includes(day)
+                  const isSunday = dayOfWeek === 0
+                  const isSaturday = dayOfWeek === 6
+                  
+                  return (
+                    <div
+                      key={dayIndex}
+                      className={`border-r last:border-r-0 min-h-[120px] ${
+                        isSunday || isHoliday ? "bg-red-50" : isSaturday ? "bg-blue-50" : ""
+                      }`}
+                    >
+                      <div className={`p-1 text-center font-semibold text-sm border-b ${
+                        isSunday || isHoliday ? "text-red-500" : isSaturday ? "text-blue-500" : ""
+                      }`}>
+                        {day}日{isHoliday && "祝"}
+                      </div>
+                      
+                      {/* C当直 */}
+                      <div className="p-1 border-b min-h-[50px]">
+                        <div className="text-xs font-medium text-gray-600">C</div>
+                        {(() => {
+                          const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "C")
+                          if (assignment) {
+                            const staffId = assignment.staffId
+                            const preference = getPreference(staffId, day)
+                            const isSubstitute = assignment.isSubstitute
+                            const isManuallyAssigned = assignment.isManuallyAssigned
+                            const experience = getStaffExperience(staffId)
+                            
+                            let preferenceIndicator = ""
+                            if (preference === "required") preferenceIndicator = "◎"
+                            else if (preference === "preferred") preferenceIndicator = "○"
+                            else if (preference === "unavailable") preferenceIndicator = "×"
+                            
+                            return (
+                              <div
+                                className={`text-xs ${isSubstitute ? "text-red-500" : ""} cursor-pointer hover:bg-gray-100 rounded`}
+                                onClick={() => handleManualAssign(day, "C")}
+                                onContextMenu={(e) => handleContextMenu(e, day, "C", staffId)}
+                              >
+                                <div className="font-medium truncate">{getStaffName(staffId)}</div>
+                                <div className="text-[10px] text-gray-500">{experience}年 {preferenceIndicator}</div>
+                                {isManuallyAssigned && <span className="text-[10px] text-purple-500">*</span>}
+                                {isSubstitute && <span className="text-[10px] text-red-500">+</span>}
+                              </div>
+                            )
+                          }
+                          return (
+                            <div
+                              className="text-xs text-gray-300 cursor-pointer hover:bg-gray-100 rounded"
+                              onClick={() => handleManualAssign(day, "C")}
+                              onContextMenu={(e) => handleContextMenu(e, day, "C")}
+                            >
+                              -
+                            </div>
+                          )
+                        })()}
+                      </div>
+                      
+                      {/* ICU当直 */}
+                      <div className="p-1 min-h-[50px]">
+                        <div className="text-xs font-medium text-gray-600">ICU</div>
+                        {(() => {
+                          const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "ICU")
+                          if (assignment) {
+                            const staffId = assignment.staffId
+                            const preference = getPreference(staffId, day)
+                            const isSubstitute = assignment.isSubstitute
+                            const isManuallyAssigned = assignment.isManuallyAssigned
+                            const experience = getStaffExperience(staffId)
+                            
+                            let preferenceIndicator = ""
+                            if (preference === "required") preferenceIndicator = "◎"
+                            else if (preference === "preferred") preferenceIndicator = "○"
+                            else if (preference === "unavailable") preferenceIndicator = "×"
+                            
+                            return (
+                              <div
+                                className={`text-xs ${isSubstitute ? "text-red-500" : ""} cursor-pointer hover:bg-gray-100 rounded`}
+                                onClick={() => handleManualAssign(day, "ICU")}
+                                onContextMenu={(e) => handleContextMenu(e, day, "ICU", staffId)}
+                              >
+                                <div className="font-medium truncate">{getStaffName(staffId)}</div>
+                                <div className="text-[10px] text-gray-500">{experience}年 {preferenceIndicator}</div>
+                                {isManuallyAssigned && <span className="text-[10px] text-purple-500">*</span>}
+                                {isSubstitute && <span className="text-[10px] text-red-500">+</span>}
+                              </div>
+                            )
+                          }
+                          return (
+                            <div
+                              className="text-xs text-gray-300 cursor-pointer hover:bg-gray-100 rounded"
+                              onClick={() => handleManualAssign(day, "ICU")}
+                              onContextMenu={(e) => handleContextMenu(e, day, "ICU")}
+                            >
+                              -
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+        </div>
+      </div>
+    )
+  }
+
+  const handleManualAssign = (day: number, shiftType: "C" | "ICU") => {
     setSelectedDay(day)
     setSelectedShiftType(shiftType)
     
@@ -105,7 +254,7 @@ export default function GeneratedSchedule({
     setContextMenu({ ...contextMenu, visible: false })
   }
 
-  const handleContextMenu = (e: React.MouseEvent, day: number, shiftType: "C" | "ICU" | "日勤", staffId?: string) => {
+  const handleContextMenu = (e: React.MouseEvent, day: number, shiftType: "C" | "ICU", staffId?: string) => {
     e.preventDefault()
     setContextMenu({
       visible: true,
@@ -161,266 +310,32 @@ export default function GeneratedSchedule({
     setIsManualAssignDialogOpen(false)
   }
 
-  // ドラッグ&ドロップのハンドラー
-  const handleDragStart = (e: React.DragEvent, staffId: string, day: number, shiftType: "C" | "ICU" | "日勤") => {
-    setDraggedItem({ staffId, day, shiftType })
-    e.dataTransfer.effectAllowed = "move"
-  }
 
-  const handleDragOver = (e: React.DragEvent, day: number, shiftType: "C" | "ICU" | "日勤") => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = "move"
-    setDragOverCell({ day, shiftType })
-  }
-
-  const handleDragLeave = () => {
-    setDragOverCell(null)
-  }
-
-  const handleDrop = (e: React.DragEvent, targetDay: number, targetShiftType: "C" | "ICU" | "日勤") => {
-    e.preventDefault()
-    
-    if (!draggedItem) return
-
-    // 同じ場所にドロップした場合は何もしない
-    if (draggedItem.day === targetDay && draggedItem.shiftType === targetShiftType) {
-      setDraggedItem(null)
-      setDragOverCell(null)
-      return
-    }
-
-    // 既存の割り当てを削除（ドラッグ元とドロップ先）
-    let updatedAssignments = schedule.assignments.filter(
-      (a) => !(
-        (a.day === draggedItem.day && a.shiftType === draggedItem.shiftType && a.staffId === draggedItem.staffId) ||
-        (a.day === targetDay && a.shiftType === targetShiftType)
-      )
-    )
-
-    // 新しい割り当てを追加
-    updatedAssignments.push({
-      day: targetDay,
-      staffId: draggedItem.staffId,
-      shiftType: targetShiftType,
-      isManuallyAssigned: true,
-    })
-
-    // スケジュールを更新
-    const updatedSchedule = {
-      ...schedule,
-      assignments: updatedAssignments,
-    }
-
-    onScheduleUpdate(updatedSchedule)
-    setDraggedItem(null)
-    setDragOverCell(null)
-  }
-
-  // 日付ヘッダーを生成（コンパクトに）
-  const dayHeaders = []
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(schedule.year, schedule.month, day)
-    const dayOfWeek = date.getDay()
-    const isSunday = dayOfWeek === 0
-    const isHoliday = holidays.includes(day)
-    const isSaturday = dayOfWeek === 6
-
-    dayHeaders.push(
-      <TableHead
-        key={day}
-        className={`text-center p-0 w-8 ${isSunday || isHoliday ? "text-red-500" : ""} ${
-          isSaturday ? "text-blue-500" : ""
-        }`}
-      >
-        <div className="text-xs">{day}</div>
-        <div className="text-[0.6rem]">
-          {["日", "月", "火", "水", "木", "金", "土"][dayOfWeek]}
-          {isHoliday ? "祝" : ""}
-        </div>
-      </TableHead>,
-    )
-  }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold">生成されたスケジュール</h2>
+    <div className="space-y-8">
+      <h2 className="text-3xl font-semibold">生成されたスケジュール</h2>
 
       <Tabs defaultValue="schedule">
-        <TabsList>
-          <TabsTrigger value="schedule">スケジュール</TabsTrigger>
-          <TabsTrigger value="drag-drop">ドラッグ&ドロップ</TabsTrigger>
-          <TabsTrigger value="summary">サマリー</TabsTrigger>
+        <TabsList className="h-12">
+          <TabsTrigger value="schedule" className="text-lg px-6">スケジュール</TabsTrigger>
+          <TabsTrigger value="summary" className="text-lg px-6">サマリー</TabsTrigger>
         </TabsList>
 
         <TabsContent value="schedule">
-          <div className="overflow-x-auto">
-            <Table className="w-auto">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="sticky left-0 bg-white z-10 w-16">日付</TableHead>
-                  {dayHeaders}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell className="sticky left-0 bg-white z-10 font-medium">日勤</TableCell>
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-                    const date = new Date(schedule.year, schedule.month, day)
-                    const isSunday = date.getDay() === 0
-                    const isHoliday = holidays.includes(day)
-
-                    if (isSunday || isHoliday) {
-                      const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "日勤")
-
-                      if (assignment) {
-                        const staffId = assignment.staffId
-                        const isManuallyAssigned = assignment.isManuallyAssigned
-                        const isSubstitute = assignment.isSubstitute
-
-                        return (
-                          <TableCell key={day} className="p-0 text-center relative group">
-                            <div 
-                              className={`text-[0.6rem] ${isSubstitute ? "text-red-500" : ""} cursor-pointer`}
-                              onClick={() => handleManualAssign(day, "日勤")}
-                              onContextMenu={(e) => handleContextMenu(e, day, "日勤", staffId)}
-                            >
-                              {getStaffName(staffId)}
-                              {isManuallyAssigned && <span className="text-purple-500">*</span>}
-                            </div>
-                            <div 
-                              className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 transition-opacity duration-200 cursor-pointer"
-                              onClick={() => handleManualAssign(day, "日勤")}
-                              onContextMenu={(e) => handleContextMenu(e, day, "日勤", staffId)}
-                            ></div>
-                          </TableCell>
-                        )
-                      }
-                    }
-                    return (
-                      <TableCell key={day} className="p-0 text-center relative group">
-                        <span className="text-[0.6rem] text-gray-300">-</span>
-                        <div
-                          className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
-                          onClick={() => handleManualAssign(day, "日勤")}
-                          onContextMenu={(e) => handleContextMenu(e, day, "日勤")}
-                        ></div>
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-                <TableRow>
-                  <TableCell className="sticky left-0 bg-white z-10 font-medium">C当直</TableCell>
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-                    const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "C")
-
-                    if (assignment) {
-                      const staffId = assignment.staffId
-                      const preference = getPreference(staffId, day)
-                      const isSubstitute = assignment.isSubstitute
-                      const isManuallyAssigned = assignment.isManuallyAssigned
-                      const experience = getStaffExperience(staffId)
-
-                      let preferenceIndicator = ""
-                      if (preference === "required") preferenceIndicator = "◎"
-                      else if (preference === "preferred") preferenceIndicator = "○"
-                      else if (preference === "unavailable") preferenceIndicator = "×"
-
-                      return (
-                        <TableCell key={day} className="p-0 text-center relative group">
-                          <div
-                            className={`text-[0.6rem] ${isSubstitute ? "text-red-500" : ""} cursor-pointer`}
-                            onClick={() => handleManualAssign(day, "C")}
-                            onContextMenu={(e) => handleContextMenu(e, day, "C", staffId)}
-                          >
-                            <div>{getStaffName(staffId)}</div>
-                            <div className="text-[0.5rem] text-gray-500">{experience}年</div>
-                            {preferenceIndicator && <span className="text-[0.5rem]">{preferenceIndicator}</span>}
-                            {isManuallyAssigned && <span className="text-purple-500">*</span>}
-                            {isSubstitute && <span className="text-[0.5rem] text-red-500">+</span>}
-                          </div>
-                          <div 
-                            className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
-                            onClick={() => handleManualAssign(day, "C")}
-                            onContextMenu={(e) => handleContextMenu(e, day, "C", staffId)}
-                          ></div>
-                        </TableCell>
-                      )
-                    }
-                    return (
-                      <TableCell key={day} className="p-0 text-center relative group">
-                        <span className="text-[0.6rem] text-gray-300">-</span>
-                        <div
-                          className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
-                          onClick={() => handleManualAssign(day, "C")}
-                          onContextMenu={(e) => handleContextMenu(e, day, "C")}
-                        ></div>
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-                <TableRow>
-                  <TableCell className="sticky left-0 bg-white z-10 font-medium">ICU当直</TableCell>
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-                    const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "ICU")
-
-                    if (assignment) {
-                      const staffId = assignment.staffId
-                      const preference = getPreference(staffId, day)
-                      const isSubstitute = assignment.isSubstitute
-                      const isManuallyAssigned = assignment.isManuallyAssigned
-                      const experience = getStaffExperience(staffId)
-
-                      let preferenceIndicator = ""
-                      if (preference === "required") preferenceIndicator = "◎"
-                      else if (preference === "preferred") preferenceIndicator = "○"
-                      else if (preference === "unavailable") preferenceIndicator = "×"
-
-                      return (
-                        <TableCell key={day} className="p-0 text-center relative group">
-                          <div
-                            className={`text-[0.6rem] ${isSubstitute ? "text-red-500" : ""} cursor-pointer`}
-                            onClick={() => handleManualAssign(day, "ICU")}
-                            onContextMenu={(e) => handleContextMenu(e, day, "ICU", staffId)}
-                          >
-                            <div>{getStaffName(staffId)}</div>
-                            <div className="text-[0.5rem] text-gray-500">{experience}年</div>
-                            {preferenceIndicator && <span className="text-[0.5rem]">{preferenceIndicator}</span>}
-                            {isManuallyAssigned && <span className="text-purple-500">*</span>}
-                            {isSubstitute && <span className="text-[0.5rem] text-red-500">+</span>}
-                          </div>
-                          <div 
-                            className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
-                            onClick={() => handleManualAssign(day, "ICU")}
-                            onContextMenu={(e) => handleContextMenu(e, day, "ICU", staffId)}
-                          ></div>
-                        </TableCell>
-                      )
-                    }
-                    return (
-                      <TableCell key={day} className="p-0 text-center relative group">
-                        <span className="text-[0.6rem] text-gray-300">-</span>
-                        <div
-                          className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
-                          onClick={() => handleManualAssign(day, "ICU")}
-                          onContextMenu={(e) => handleContextMenu(e, day, "ICU")}
-                        ></div>
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-              </TableBody>
-            </Table>
+          <div className="w-full">
+            <CalendarView />
           </div>
-          <div className="mt-2 text-xs space-y-1">
+          <div className="mt-4 text-base space-y-2">
             <p>
               <span className="text-purple-500">*</span> は手動で割り当てられたシフトを示します
             </p>
             <p>
               <span className="text-red-500">+</span> は上限を超えて割り当てられたシフトを示します
             </p>
-            <div className="bg-blue-50 p-2 rounded border border-blue-200">
-              <p className="font-semibold text-blue-800 mb-1">手動でのスケジュール変更方法：</p>
-              <ul className="space-y-1 text-blue-700">
+            <div className="bg-blue-50 p-4 rounded border border-blue-200">
+              <p className="font-semibold text-blue-800 mb-2 text-lg">手動でのスケジュール変更方法：</p>
+              <ul className="space-y-2 text-blue-700">
                 <li>• <strong>左クリック</strong>：スタッフの割り当て・変更ダイアログを開く</li>
                 <li>• <strong>右クリック</strong>：コンテキストメニューで素早く変更・削除</li>
                 <li>• ダイアログで「割り当てを削除」を選択すると、そのシフトから割り当てを削除できます</li>
@@ -429,166 +344,19 @@ export default function GeneratedSchedule({
           </div>
         </TabsContent>
 
-        <TabsContent value="drag-drop">
-          <div className="space-y-4">
-            <div className="bg-blue-50 p-3 rounded border border-blue-200">
-              <p className="font-semibold text-blue-800 mb-1">ドラッグ&ドロップでのスケジュール変更方法：</p>
-              <ul className="space-y-1 text-blue-700 text-sm">
-                <li>• スタッフ名をドラッグして、別の日または別のシフトタイプにドロップします</li>
-                <li>• 既存の割り当てがある場所にドロップすると、自動的に入れ替わります</li>
-                <li>• 空いている枠にもドロップできます</li>
-              </ul>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <Table className="w-auto">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="sticky left-0 bg-white z-10 w-16">日付</TableHead>
-                    {dayHeaders}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow>
-                    <TableCell className="sticky left-0 bg-white z-10 font-medium">日勤</TableCell>
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-                      const date = new Date(schedule.year, schedule.month, day)
-                      const isSunday = date.getDay() === 0
-                      const isHoliday = holidays.includes(day)
-
-                      if (isSunday || isHoliday) {
-                        const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "日勤")
-
-                        return (
-                          <TableCell 
-                            key={day} 
-                            className={`p-1 text-center relative ${
-                              dragOverCell?.day === day && dragOverCell?.shiftType === "日勤" 
-                                ? "bg-yellow-50 border-2 border-yellow-300" 
-                                : ""
-                            }`}
-                            onDragOver={(e) => handleDragOver(e, day, "日勤")}
-                            onDragLeave={handleDragLeave}
-                            onDrop={(e) => handleDrop(e, day, "日勤")}
-                          >
-                            {assignment ? (
-                              <div 
-                                className={`text-[0.65rem] p-1 rounded cursor-move bg-yellow-100 hover:bg-yellow-200 ${assignment.isSubstitute ? "text-red-500" : ""}`}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, assignment.staffId, day, "日勤")}
-                              >
-                                {getStaffName(assignment.staffId)}
-                                {assignment.isManuallyAssigned && <span className="text-purple-500">*</span>}
-                              </div>
-                            ) : (
-                              <div className="text-[0.6rem] text-gray-300 p-1">-</div>
-                            )}
-                          </TableCell>
-                        )
-                      }
-                      return (
-                        <TableCell key={day} className="p-1 text-center">
-                          <span className="text-[0.6rem] text-gray-300">-</span>
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="sticky left-0 bg-white z-10 font-medium">C当直</TableCell>
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-                      const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "C")
-
-                      return (
-                        <TableCell 
-                          key={day} 
-                          className={`p-1 text-center relative ${
-                            dragOverCell?.day === day && dragOverCell?.shiftType === "C" 
-                              ? "bg-blue-50 border-2 border-blue-300" 
-                              : ""
-                          }`}
-                          onDragOver={(e) => handleDragOver(e, day, "C")}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, day, "C")}
-                        >
-                          {assignment ? (
-                            <div
-                              className={`text-[0.65rem] p-1 rounded cursor-move bg-blue-100 hover:bg-blue-200 ${assignment.isSubstitute ? "text-red-500" : ""}`}
-                              draggable
-                              onDragStart={(e) => handleDragStart(e, assignment.staffId, day, "C")}
-                            >
-                              <div>{getStaffName(assignment.staffId)}</div>
-                              <div className="text-[0.5rem] text-gray-500">{getStaffExperience(assignment.staffId)}年</div>
-                              {assignment.isManuallyAssigned && <span className="text-purple-500">*</span>}
-                            </div>
-                          ) : (
-                            <div className="text-[0.6rem] text-gray-300 p-1">-</div>
-                          )}
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="sticky left-0 bg-white z-10 font-medium">ICU当直</TableCell>
-                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-                      const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "ICU")
-
-                      return (
-                        <TableCell 
-                          key={day} 
-                          className={`p-1 text-center relative ${
-                            dragOverCell?.day === day && dragOverCell?.shiftType === "ICU" 
-                              ? "bg-green-50 border-2 border-green-300" 
-                              : ""
-                          }`}
-                          onDragOver={(e) => handleDragOver(e, day, "ICU")}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, day, "ICU")}
-                        >
-                          {assignment ? (
-                            <div
-                              className={`text-[0.65rem] p-1 rounded cursor-move bg-green-100 hover:bg-green-200 ${assignment.isSubstitute ? "text-red-500" : ""}`}
-                              draggable
-                              onDragStart={(e) => handleDragStart(e, assignment.staffId, day, "ICU")}
-                            >
-                              <div>{getStaffName(assignment.staffId)}</div>
-                              <div className="text-[0.5rem] text-gray-500">{getStaffExperience(assignment.staffId)}年</div>
-                              {assignment.isManuallyAssigned && <span className="text-purple-500">*</span>}
-                            </div>
-                          ) : (
-                            <div className="text-[0.6rem] text-gray-300 p-1">-</div>
-                          )}
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-            
-            <div className="mt-2 text-xs space-y-1">
-              <p>
-                <span className="text-purple-500">*</span> は手動で割り当てられたシフトを示します
-              </p>
-              <p>
-                <span className="text-red-500">赤字</span> は上限を超えて割り当てられたシフトを示します
-              </p>
-            </div>
-          </div>
-        </TabsContent>
 
         <TabsContent value="summary">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>名前</TableHead>
-                  <TableHead>診療科</TableHead>
-                  <TableHead>経験年数</TableHead>
-                  <TableHead>上限解釈</TableHead>
-                  <TableHead>C当直</TableHead>
-                  <TableHead>ICU当直</TableHead>
-                  <TableHead>日勤</TableHead>
-                  <TableHead>当直日</TableHead>
+                  <TableHead className="text-lg p-4">名前</TableHead>
+                  <TableHead className="text-lg p-4">診療科</TableHead>
+                  <TableHead className="text-lg p-4">経験年数</TableHead>
+                  <TableHead className="text-lg p-4">上限解釈</TableHead>
+                  <TableHead className="text-lg p-4">C当直</TableHead>
+                  <TableHead className="text-lg p-4">ICU当直</TableHead>
+                  <TableHead className="text-lg p-4">当直日</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -600,18 +368,13 @@ export default function GeneratedSchedule({
                     const icuShifts = schedule.assignments.filter(
                       (a) => a.staffId === member.id && a.shiftType === "ICU",
                     )
-                    const dayShifts = schedule.assignments.filter(
-                      (a) => a.staffId === member.id && a.shiftType === "日勤",
-                    )
 
                     const cSubstitutes = cShifts.filter((a) => a.isSubstitute)
                     const icuSubstitutes = icuShifts.filter((a) => a.isSubstitute)
-                    const daySubstitutes = dayShifts.filter((a) => a.isSubstitute)
 
-                    const hasSubstitutes =
-                      cSubstitutes.length > 0 || icuSubstitutes.length > 0 || daySubstitutes.length > 0
+                    const hasSubstitutes = cSubstitutes.length > 0 || icuSubstitutes.length > 0
 
-                    const allShiftDays = [...cShifts, ...icuShifts, ...dayShifts]
+                    const allShiftDays = [...cShifts, ...icuShifts]
                       .sort((a, b) => a.day - b.day)
                       .map((a) => {
                         const isSubstitute = a.isSubstitute
@@ -622,8 +385,6 @@ export default function GeneratedSchedule({
                     // 上限達成率を計算
                     const cPercentage = member.maxCShifts > 0 ? (cShifts.length / member.maxCShifts) * 100 : 100
                     const icuPercentage = member.maxICUShifts > 0 ? (icuShifts.length / member.maxICUShifts) * 100 : 100
-                    const dayPercentage =
-                      member.maxHolidayShifts > 0 ? (dayShifts.length / member.maxHolidayShifts) * 100 : 100
 
                     // 上限解釈の表示
                     let limitInterpretationDisplay = "-"
@@ -689,19 +450,9 @@ export default function GeneratedSchedule({
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={dayShifts.length < member.maxHolidayShifts ? "text-orange-500 font-bold" : ""}
-                            >
-                              {dayShifts.length}/{member.maxHolidayShifts}
-                            </span>
-                            <Progress value={dayPercentage} className="h-2 w-16" />
-                          </div>
-                        </TableCell>
-                        <TableCell>
                           <div>
-                            <div className="text-xs">{allShiftDays.join(", ")}</div>
-                            <div className="text-xs mt-1">
+                            <div className="text-base">{allShiftDays.join(", ")}</div>
+                            <div className="text-sm mt-2">
                               <span className="text-gray-500">週末: {weekendShifts.length}回</span>
                               <span className="text-gray-500 ml-2">
                                 前/後: {firstHalfShifts.length}/{secondHalfShifts.length}
@@ -714,7 +465,7 @@ export default function GeneratedSchedule({
                   })}
               </TableBody>
             </Table>
-            <div className="mt-4 text-sm">
+            <div className="mt-6 text-base space-y-2">
               <p>
                 <span className="text-purple-500">*</span> は手動で割り当てられたシフトを示します
               </p>
@@ -738,7 +489,7 @@ export default function GeneratedSchedule({
           <DialogHeader>
             <DialogTitle>シフトの手動割り当て</DialogTitle>
             <DialogDescription>
-              {selectedDay}日の{selectedShiftType === "C" ? "C当直" : selectedShiftType === "ICU" ? "ICU当直" : "日勤"}を割り当てるスタッフを選択してください。
+              {selectedDay}日の{selectedShiftType === "C" ? "C当直" : "ICU当直"}を割り当てるスタッフを選択してください。
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -751,7 +502,7 @@ export default function GeneratedSchedule({
                 {staff
                   .filter((s) => s.name)
                   .filter((s) => {
-                    // 日勤の場合は全スタッフを表示、当直の場合は条件に応じてフィルタリング可能
+                    // 当直の場合は条件に応じてフィルタリング可能
                     return true
                   })
                   .map((s) => (

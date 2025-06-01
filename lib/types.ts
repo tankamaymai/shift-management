@@ -18,7 +18,7 @@ export interface Preference {
 export interface ShiftAssignment {
   day: number
   staffId: string
-  shiftType: "C" | "ICU" | "日勤"
+  shiftType: "C" | "ICU"
   isSubstitute?: boolean
   isManuallyAssigned?: boolean // 手動割り当てフラグを追加
 }

@@ -4,6 +4,7 @@
 
 body {
   font-family: Arial, Helvetica, sans-serif;
+  font-size: 18px;
 }
 
 @layer utilities {
@@ -90,5 +91,44 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* 全体的なフォントサイズとスペーシングの調整 */
+  h1 {
+    @apply text-4xl md:text-5xl font-bold mb-6;
+  }
+  h2 {
+    @apply text-3xl md:text-4xl font-semibold mb-4;
+  }
+  h3 {
+    @apply text-2xl md:text-3xl font-semibold mb-3;
+  }
+  
+  /* ボタンを大きく */
+  button {
+    @apply min-h-[52px] px-6 text-lg font-medium;
+  }
+  
+  /* 入力フィールドを大きく */
+  input, select, textarea {
+    @apply min-h-[52px] text-lg px-4;
+  }
+  
+  /* ラベルを大きく */
+  label {
+    @apply text-lg font-medium;
+  }
+  
+  /* カードのパディングを増やす */
+  .space-y-4 {
+    @apply space-y-6;
+  }
+  .space-y-6 {
+    @apply space-y-8;
+  }
+  
+  /* テーブルのセルを大きく */
+  td, th {
+    @apply p-4 text-base;
   }
 }

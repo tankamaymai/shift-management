@@ -233,7 +233,7 @@ export default function ShiftManagement() {
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <select
-            className="border rounded p-2"
+            className="border rounded p-4 text-lg"
             value={currentMonth}
             onChange={(e) => handleMonthChange(Number.parseInt(e.target.value))}
           >
@@ -243,7 +243,7 @@ export default function ShiftManagement() {
               </option>
             ))}
           </select>
-          <span className="text-lg font-medium">
+          <span className="text-xl font-medium">
             {currentYear}年 {monthNames[currentMonth]} ({daysInMonth}日)
           </span>
         </div>
@@ -337,11 +337,11 @@ export default function ShiftManagement() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-4 w-[500px]">
-          <TabsTrigger value="staff">スタッフ情報</TabsTrigger>
-          <TabsTrigger value="preferences">希望入力</TabsTrigger>
-          <TabsTrigger value="holidays">祝日設定</TabsTrigger>
-          <TabsTrigger value="generated">生成されたスケジュール</TabsTrigger>
+        <TabsList className="grid grid-cols-4 w-full max-w-[800px] h-14">
+          <TabsTrigger value="staff" className="text-lg">スタッフ情報</TabsTrigger>
+          <TabsTrigger value="preferences" className="text-lg">希望入力</TabsTrigger>
+          <TabsTrigger value="holidays" className="text-lg">祝日設定</TabsTrigger>
+          <TabsTrigger value="generated" className="text-lg">生成されたスケジュール</TabsTrigger>
         </TabsList>
 
         <TabsContent value="staff">

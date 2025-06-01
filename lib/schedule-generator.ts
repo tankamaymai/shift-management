@@ -17,23 +17,12 @@ export function generateSchedule(
 
   // 初期化
   const assignments: ShiftAssignment[] = []
-  const shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }> = {}
+  const shiftCounts: Record<string, { C: number; ICU: number }> = {}
   validStaff.forEach((member) => {
-    shiftCounts[member.id] = { C: 0, ICU: 0, 日勤: 0 }
+    shiftCounts[member.id] = { C: 0, ICU: 0 }
   })
 
-  // 各日のシフトを割り当て
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(year, month, day)
-    const isSunday = date.getDay() === 0
-    const isHoliday = holidays.includes(day)
-    const isHolidayOrSunday = isSunday || isHoliday
-
-    // 日曜・祝日の日勤シフトを割り当て
-    if (isHolidayOrSunday) {
-      assignDayShift(day, validStaff, assignments, shiftCounts, preferences)
-    }
-  }
+  // 日勤シフトの割り当てを削除
 
   // 必須の希望（◎）を先に割り当て
   assignRequiredPreferences(daysInMonth, validStaff, preferences, assignments, shiftCounts, year, month)
@@ -43,6 +32,9 @@ export function generateSchedule(
 
   // 次にC当直を割り当て
   assignAllCShifts(daysInMonth, staffForC, preferences, assignments, shiftCounts, year, month, holidays)
+
+  // 空白セルを強制的に埋める
+  fillEmptyCells(daysInMonth, validStaff, assignments, shiftCounts, preferences)
 
   // 上限に達していないスタッフがいる場合、再度割り当てを試みる
   ensureAllLimitsReached(daysInMonth, validStaff, assignments, shiftCounts, preferences)
@@ -67,7 +59,7 @@ function assignRequiredPreferences(
   staff: Staff[],
   preferences: Preference[],
   assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   year: number,
   month: number,
 ): void {
@@ -134,6 +126,191 @@ function assignRequiredPreferences(
   }
 }
 
+// 空白セルを強制的に埋める新機能
+function fillEmptyCells(
+  daysInMonth: number,
+  staff: Staff[],
+  assignments: ShiftAssignment[],
+  shiftCounts: Record<string, { C: number; ICU: number }>,
+  preferences: Preference[] = [],
+): void {
+  for (let day = 1; day <= daysInMonth; day++) {
+    // C当直の空白をチェック
+    const cAssignment = assignments.find((a) => a.day === day && a.shiftType === "C")
+    if (!cAssignment) {
+      assignEmptyShift(day, "C", staff, assignments, shiftCounts, preferences)
+    }
+
+    // ICU当直の空白をチェック
+    const icuAssignment = assignments.find((a) => a.day === day && a.shiftType === "ICU")
+    if (!icuAssignment) {
+      assignEmptyShift(day, "ICU", staff, assignments, shiftCounts, preferences)
+    }
+  }
+}
+
+// 空白のシフトに強制的にスタッフを割り当て
+function assignEmptyShift(
+  day: number,
+  shiftType: "C" | "ICU",
+  staff: Staff[],
+  assignments: ShiftAssignment[],
+  shiftCounts: Record<string, { C: number; ICU: number }>,
+  preferences: Preference[] = [],
+): void {
+  // 利用可能なスタッフを探す（制約を徐々に緩和）
+  const eligibleStaff = staff.filter((member) => {
+    const maxShifts = shiftType === "C" ? member.maxCShifts : member.maxICUShifts
+    return maxShifts > 0
+  })
+
+  // 1. まず通常の制約でスタッフを探す
+  let availableStaff = eligibleStaff.filter((member) => {
+    // すでにその日にシフトが割り当てられている場合はスキップ
+    if (assignments.some((a) => a.day === day && a.staffId === member.id)) return false
+
+    // unavailableの希望がある場合はスキップ
+    const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
+    if (pref && pref.preference === "unavailable") return false
+
+    // 診療科の重複チェック
+    const departmentAssigned = assignments.some(
+      (a) => a.day === day && staff.find((s) => s.id === a.staffId)?.department === member.department,
+    )
+    if (departmentAssigned) return false
+
+    // 連続勤務チェック（3日以内）
+    const hasRecentOrUpcomingShift = assignments.some((a) => {
+      const dayDiff = Math.abs(day - a.day)
+      return a.staffId === member.id && dayDiff <= 3
+    })
+    if (hasRecentOrUpcomingShift) return false
+
+    return true
+  })
+
+  // 2. 見つからない場合は連続勤務制約を緩和（2日以内）
+  if (availableStaff.length === 0) {
+    availableStaff = eligibleStaff.filter((member) => {
+      if (assignments.some((a) => a.day === day && a.staffId === member.id)) return false
+      const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
+      if (pref && pref.preference === "unavailable") return false
+      
+      const departmentAssigned = assignments.some(
+        (a) => a.day === day && staff.find((s) => s.id === a.staffId)?.department === member.department,
+      )
+      if (departmentAssigned) return false
+
+      const hasRecentOrUpcomingShift = assignments.some((a) => {
+        const dayDiff = Math.abs(day - a.day)
+        return a.staffId === member.id && dayDiff <= 2
+      })
+      if (hasRecentOrUpcomingShift) return false
+
+      return true
+    })
+  }
+
+  // 3. それでも見つからない場合は診療科重複を許可
+  if (availableStaff.length === 0) {
+    availableStaff = eligibleStaff.filter((member) => {
+      if (assignments.some((a) => a.day === day && a.staffId === member.id)) return false
+      const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
+      if (pref && pref.preference === "unavailable") return false
+
+      const hasRecentOrUpcomingShift = assignments.some((a) => {
+        const dayDiff = Math.abs(day - a.day)
+        return a.staffId === member.id && dayDiff <= 1
+      })
+      if (hasRecentOrUpcomingShift) return false
+
+      return true
+    })
+  }
+
+  // 4. それでも見つからない場合は、unavailable以外のすべての制約を無視
+  if (availableStaff.length === 0) {
+    availableStaff = eligibleStaff.filter((member) => {
+      if (assignments.some((a) => a.day === day && a.staffId === member.id)) return false
+      const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
+      if (pref && pref.preference === "unavailable") return false
+      return true
+    })
+  }
+
+  // 5. 最終手段：unavailableも無視（ただし、その日に既にシフトがある人は除く）
+  if (availableStaff.length === 0) {
+    availableStaff = eligibleStaff.filter((member) => {
+      return !assignments.some((a) => a.day === day && a.staffId === member.id)
+    })
+  }
+
+  if (availableStaff.length === 0) {
+    console.warn(`警告: ${day}日の${shiftType}当直に割り当て可能なスタッフがいません`)
+    return
+  }
+
+  // 最適なスタッフを選択
+  let selectedStaff: Staff | null = null
+
+  // 1. 必須希望のスタッフ
+  const requiredStaff = availableStaff.filter((member) => {
+    const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
+    return pref && pref.preference === "required"
+  })
+
+  if (requiredStaff.length > 0) {
+    selectedStaff = requiredStaff.reduce((best, current) => {
+      const bestCount = shiftType === "C" ? shiftCounts[best.id].C : shiftCounts[best.id].ICU
+      const currentCount = shiftType === "C" ? shiftCounts[current.id].C : shiftCounts[current.id].ICU
+      return currentCount < bestCount ? current : best
+    })
+  }
+
+  // 2. 希望のスタッフ
+  if (!selectedStaff) {
+    const preferredStaff = availableStaff.filter((member) => {
+      const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
+      return pref && pref.preference === "preferred"
+    })
+
+    if (preferredStaff.length > 0) {
+      selectedStaff = preferredStaff.reduce((best, current) => {
+        const bestCount = shiftType === "C" ? shiftCounts[best.id].C : shiftCounts[best.id].ICU
+        const currentCount = shiftType === "C" ? shiftCounts[current.id].C : shiftCounts[current.id].ICU
+        return currentCount < bestCount ? current : best
+      })
+    }
+  }
+
+  // 3. 最も少ないシフト数のスタッフ
+  if (!selectedStaff) {
+    selectedStaff = availableStaff.reduce((best, current) => {
+      const bestCount = shiftType === "C" ? shiftCounts[best.id].C : shiftCounts[best.id].ICU
+      const currentCount = shiftType === "C" ? shiftCounts[current.id].C : shiftCounts[current.id].ICU
+      return currentCount < bestCount ? current : best
+    })
+  }
+
+  if (selectedStaff) {
+    const currentCount = shiftType === "C" ? shiftCounts[selectedStaff.id].C : shiftCounts[selectedStaff.id].ICU
+    const maxShifts = shiftType === "C" ? selectedStaff.maxCShifts : selectedStaff.maxICUShifts
+    
+    assignments.push({
+      day,
+      staffId: selectedStaff.id,
+      shiftType,
+      isSubstitute: currentCount >= maxShifts,
+    })
+
+    if (shiftType === "C") {
+      shiftCounts[selectedStaff.id].C++
+    } else {
+      shiftCounts[selectedStaff.id].ICU++
+    }
+  }
+}
+
 // スタッフが特定の日にシフトに入れるかチェック
 function isAvailableForShift(
   member: Staff,
@@ -169,94 +346,7 @@ function isAvailableForShift(
   return true
 }
 
-// 日勤シフトを割り当て
-function assignDayShift(
-  day: number,
-  staff: Staff[],
-  assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
-  preferences: Preference[] = [],
-): void {
-  // 希望が「required」のスタッフを優先
-  const requiredStaff = staff.filter((member) => {
-    const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
-    return pref && pref.preference === "required"
-  })
 
-  if (requiredStaff.length > 0) {
-    for (const member of requiredStaff) {
-      if (shiftCounts[member.id].日勤 >= member.maxHolidayShifts) continue
-      if (!isAvailableForShift(member, day, assignments, staff, preferences)) continue
-
-      assignments.push({
-        day,
-        staffId: member.id,
-        shiftType: "日勤",
-        isManuallyAssigned: true,
-      })
-      shiftCounts[member.id].日勤++
-      return
-    }
-  }
-
-  // 希望が「preferred」のスタッフを次に優先
-  const preferredStaff = staff.filter((member) => {
-    const pref = preferences.find((p) => p.staffId === member.id && p.date.getDate() === day)
-    return pref && pref.preference === "preferred"
-  })
-
-  if (preferredStaff.length > 0) {
-    for (const member of preferredStaff) {
-      if (shiftCounts[member.id].日勤 >= member.maxHolidayShifts) continue
-      if (!isAvailableForShift(member, day, assignments, staff, preferences)) continue
-
-      assignments.push({
-        day,
-        staffId: member.id,
-        shiftType: "日勤",
-      })
-      shiftCounts[member.id].日勤++
-      return
-    }
-  }
-
-  // 上限に達していない人を割り当て
-  for (const member of staff) {
-    if (shiftCounts[member.id].日勤 >= member.maxHolidayShifts) continue
-    if (!isAvailableForShift(member, day, assignments, staff, preferences)) continue
-
-    assignments.push({
-      day,
-      staffId: member.id,
-      shiftType: "日勤",
-    })
-    shiftCounts[member.id].日勤++
-    return
-  }
-
-  // どうしても割り当てられない場合は、最も上限に余裕のある人を選ぶ
-  let bestCandidate: Staff | null = null
-  let maxMargin = -1
-
-  for (const member of staff) {
-    if (!isAvailableForShift(member, day, assignments, staff, preferences)) continue
-
-    const margin = member.maxHolidayShifts - shiftCounts[member.id].日勤
-    if (margin > maxMargin) {
-      maxMargin = margin
-      bestCandidate = member
-    }
-  }
-
-  if (bestCandidate) {
-    assignments.push({
-      day,
-      staffId: bestCandidate.id,
-      shiftType: "日勤",
-    })
-    shiftCounts[bestCandidate.id].日勤++
-  }
-}
 
 // 全てのICU当直を割り当て
 function assignAllICUShifts(
@@ -264,7 +354,7 @@ function assignAllICUShifts(
   staff: Staff[],
   preferences: Preference[],
   assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   year: number,
   month: number,
   holidays: number[],
@@ -420,7 +510,7 @@ function canAssignICUShift(
   day: number,
   assignments: ShiftAssignment[],
   staff: Staff[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   preferences: Preference[] = [],
   ignoreExperience = false,
 ): boolean {
@@ -458,7 +548,7 @@ function assignAllCShifts(
   staff: Staff[],
   preferences: Preference[],
   assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   year: number,
   month: number,
   holidays: number[],
@@ -624,7 +714,7 @@ function canAssignCShift(
   day: number,
   assignments: ShiftAssignment[],
   staff: Staff[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   preferences: Preference[] = [],
   ignoreExperience = false,
 ): boolean {
@@ -661,7 +751,7 @@ function ensureAllLimitsReached(
   daysInMonth: number,
   staff: Staff[],
   assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   preferences: Preference[],
 ): void {
   // 上限解釈が「strict」のスタッフを特定
@@ -771,7 +861,7 @@ function balanceWeekendShifts(
   daysInMonth: number,
   staff: Staff[],
   assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   year: number,
   month: number,
   holidays: number[],
@@ -874,7 +964,7 @@ function canReassignShift(
   newStaff: Staff,
   assignments: ShiftAssignment[],
   staff: Staff[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   preferences: Preference[],
 ): boolean {
   // 上限チェック
@@ -926,7 +1016,7 @@ function balanceFirstSecondHalf(
   daysInMonth: number,
   staff: Staff[],
   assignments: ShiftAssignment[],
-  shiftCounts: Record<string, { C: number; ICU: number; 日勤: number }>,
+  shiftCounts: Record<string, { C: number; ICU: number }>,
   preferences: Preference[] = [],
 ): void {
   const midPoint = Math.ceil(daysInMonth / 2)
@@ -941,8 +1031,6 @@ function balanceFirstSecondHalf(
   })
 
   for (const assignment of assignments) {
-    if (assignment.shiftType === "日勤") continue
-
     if (assignment.day < midPoint) {
       firstHalfCounts[assignment.staffId][assignment.shiftType]++
     } else {
