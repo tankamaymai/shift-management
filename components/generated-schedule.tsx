@@ -38,6 +38,7 @@ export default function GeneratedSchedule({
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
   const [selectedShiftType, setSelectedShiftType] = useState<"C" | "ICU" | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<"calendar" | "table">("calendar")
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean
     x: number
@@ -242,6 +243,149 @@ export default function GeneratedSchedule({
     )
   }
 
+  // テーブルビューのコンポーネント（横一列表示）
+  const TableView = () => {
+    // 日付ヘッダーを生成
+    const dayHeaders = []
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(schedule.year, schedule.month, day)
+      const dayOfWeek = date.getDay()
+      const isSunday = dayOfWeek === 0
+      const isHoliday = holidays.includes(day)
+      const isSaturday = dayOfWeek === 6
+
+      dayHeaders.push(
+        <TableHead
+          key={day}
+          className={`text-center p-1 min-w-[60px] ${isSunday || isHoliday ? "text-red-500" : ""} ${
+            isSaturday ? "text-blue-500" : ""
+          }`}
+        >
+          <div className="text-base font-medium">{day}</div>
+          <div className="text-sm">
+            {["日", "月", "火", "水", "木", "金", "土"][dayOfWeek]}
+            {isHoliday ? "祝" : ""}
+          </div>
+        </TableHead>,
+      )
+    }
+
+    return (
+      <div className="overflow-x-auto">
+        <Table className="w-auto">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="sticky left-0 bg-white z-10 min-w-[100px] text-lg">日付</TableHead>
+              {dayHeaders}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell className="sticky left-0 bg-white z-10 font-medium text-lg">C当直</TableCell>
+              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "C")
+
+                if (assignment) {
+                  const staffId = assignment.staffId
+                  const preference = getPreference(staffId, day)
+                  const isSubstitute = assignment.isSubstitute
+                  const isManuallyAssigned = assignment.isManuallyAssigned
+                  const experience = getStaffExperience(staffId)
+
+                  let preferenceIndicator = ""
+                  if (preference === "required") preferenceIndicator = "◎"
+                  else if (preference === "preferred") preferenceIndicator = "○"
+                  else if (preference === "unavailable") preferenceIndicator = "×"
+
+                  return (
+                    <TableCell key={day} className="p-2 text-center relative group">
+                      <div
+                        className={`text-base ${isSubstitute ? "text-red-500" : ""} cursor-pointer`}
+                        onClick={() => handleManualAssign(day, "C")}
+                        onContextMenu={(e) => handleContextMenu(e, day, "C", staffId)}
+                      >
+                        <div className="font-medium">{getStaffName(staffId)}</div>
+                        <div className="text-sm text-gray-500">{experience}年</div>
+                        {preferenceIndicator && <span className="text-sm">{preferenceIndicator}</span>}
+                        {isManuallyAssigned && <span className="text-purple-500">*</span>}
+                        {isSubstitute && <span className="text-sm text-red-500">+</span>}
+                      </div>
+                      <div 
+                        className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 transition-opacity duration-200 cursor-pointer"
+                        onClick={() => handleManualAssign(day, "C")}
+                        onContextMenu={(e) => handleContextMenu(e, day, "C", staffId)}
+                      ></div>
+                    </TableCell>
+                  )
+                }
+                return (
+                  <TableCell key={day} className="p-2 text-center relative group">
+                    <span className="text-base text-gray-300">-</span>
+                    <div
+                      className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
+                      onClick={() => handleManualAssign(day, "C")}
+                      onContextMenu={(e) => handleContextMenu(e, day, "C")}
+                    ></div>
+                  </TableCell>
+                )
+              })}
+            </TableRow>
+            <TableRow>
+              <TableCell className="sticky left-0 bg-white z-10 font-medium text-lg">ICU当直</TableCell>
+              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                const assignment = schedule.assignments.find((a) => a.day === day && a.shiftType === "ICU")
+
+                if (assignment) {
+                  const staffId = assignment.staffId
+                  const preference = getPreference(staffId, day)
+                  const isSubstitute = assignment.isSubstitute
+                  const isManuallyAssigned = assignment.isManuallyAssigned
+                  const experience = getStaffExperience(staffId)
+
+                  let preferenceIndicator = ""
+                  if (preference === "required") preferenceIndicator = "◎"
+                  else if (preference === "preferred") preferenceIndicator = "○"
+                  else if (preference === "unavailable") preferenceIndicator = "×"
+
+                  return (
+                    <TableCell key={day} className="p-2 text-center relative group">
+                      <div
+                        className={`text-base ${isSubstitute ? "text-red-500" : ""} cursor-pointer`}
+                        onClick={() => handleManualAssign(day, "ICU")}
+                        onContextMenu={(e) => handleContextMenu(e, day, "ICU", staffId)}
+                      >
+                        <div className="font-medium">{getStaffName(staffId)}</div>
+                        <div className="text-sm text-gray-500">{experience}年</div>
+                        {preferenceIndicator && <span className="text-sm">{preferenceIndicator}</span>}
+                        {isManuallyAssigned && <span className="text-purple-500">*</span>}
+                        {isSubstitute && <span className="text-sm text-red-500">+</span>}
+                      </div>
+                      <div 
+                        className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
+                        onClick={() => handleManualAssign(day, "ICU")}
+                        onContextMenu={(e) => handleContextMenu(e, day, "ICU", staffId)}
+                      ></div>
+                    </TableCell>
+                  )
+                }
+                return (
+                  <TableCell key={day} className="p-2 text-center relative group">
+                    <span className="text-base text-gray-300">-</span>
+                    <div
+                      className="absolute inset-0 bg-blue-100 opacity-0 group-hover:opacity-20 cursor-pointer"
+                      onClick={() => handleManualAssign(day, "ICU")}
+                      onContextMenu={(e) => handleContextMenu(e, day, "ICU")}
+                    ></div>
+                  </TableCell>
+                )
+              })}
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
+
   const handleManualAssign = (day: number, shiftType: "C" | "ICU") => {
     setSelectedDay(day)
     setSelectedShiftType(shiftType)
@@ -323,8 +467,17 @@ export default function GeneratedSchedule({
         </TabsList>
 
         <TabsContent value="schedule">
+          <div className="mb-4">
+            <Button
+              onClick={() => setViewMode(viewMode === "calendar" ? "table" : "calendar")}
+              variant="outline"
+              className="text-base"
+            >
+              {viewMode === "calendar" ? "横一列表示に切り替え" : "カレンダー表示に切り替え"}
+            </Button>
+          </div>
           <div className="w-full">
-            <CalendarView />
+            {viewMode === "calendar" ? <CalendarView /> : <TableView />}
           </div>
           <div className="mt-4 text-base space-y-2">
             <p>
@@ -502,14 +655,43 @@ export default function GeneratedSchedule({
                 {staff
                   .filter((s) => s.name)
                   .filter((s) => {
-                    // 当直の場合は条件に応じてフィルタリング可能
+                    if (!selectedDay || !selectedShiftType) return false
+                    
+                    // 1. その日に既にシフトが割り当てられているかチェック
+                    const hasShiftOnDay = schedule.assignments.some(
+                      (a) => a.day === selectedDay && a.staffId === s.id
+                    )
+                    if (hasShiftOnDay) return false
+                    
+                    // 2. unavailable（×）の希望がある場合は除外
+                    const pref = preferences.find((p) => p.staffId === s.id && p.date.getDate() === selectedDay)
+                    if (pref && pref.preference === "unavailable") return false
+                    
                     return true
                   })
-                  .map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name} ({s.department}, {s.yearsOfExperience}年)
-                    </SelectItem>
-                  ))}
+                  .map((s) => {
+                    // 現在のシフト数を計算
+                    const currentShifts = schedule.assignments.filter(
+                      (a) => a.staffId === s.id && a.shiftType === selectedShiftType
+                    ).length
+                    const maxShifts = selectedShiftType === "C" ? s.maxCShifts : s.maxICUShifts
+                    const isOverLimit = currentShifts >= maxShifts
+                    
+                    // 希望を取得
+                    const pref = preferences.find((p) => p.staffId === s.id && p.date.getDate() === selectedDay)
+                    let preferenceText = ""
+                    if (pref) {
+                      if (pref.preference === "required") preferenceText = " ◎"
+                      else if (pref.preference === "preferred") preferenceText = " ○"
+                    }
+                    
+                    return (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} ({s.department}, {s.yearsOfExperience}年, {currentShifts}/{maxShifts}回{preferenceText})
+                        {isOverLimit && " [上限超過]"}
+                      </SelectItem>
+                    )
+                  })}
               </SelectContent>
             </Select>
           </div>
